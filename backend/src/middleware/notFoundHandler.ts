@@ -4,6 +4,6 @@ import { NotFoundError } from "../lib/errors.js";
 
 
 
-export function notFoundHandler( req: Request, _res: Response, next: NextFunction ) {
+export function notFoundHandler( _req: Request, _res: Response, next: NextFunction ) {
   next(new NotFoundError("Route not found"));
 }

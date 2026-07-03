@@ -165,7 +165,6 @@ export function ThreadDetail({ id }: ThreadDetailProps) {
                   >
                     <MoreVertical className="h-4 w-4 text-muted-foreground" />
                   </Button>
-
                     {menuOpen && (
                       <div className="absolute right-0 top-9 z-50 min-w-[150px] overflow-hidden rounded-lg border border-border bg-card shadow-lg shadow-black/20 animate-in fade-in slide-in-from-top-2 duration-150">
                         <button

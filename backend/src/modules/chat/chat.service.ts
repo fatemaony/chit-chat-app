@@ -1,26 +1,25 @@
-import { query } from "../../db/db.js";
+import { prisma } from "../../db/db.js";
 
 export async function listChatUsers(currentUserId: number) {
   try {
-    const result = await query(
-      `
-            SELECT 
-              id,
-              display_name,
-              handle,
-              avatar_url
-            FROM users
-            WHERE id <> $1
-            ORDER BY COALESCE(display_name, handle, 'User') ASC
-            `,
-      [currentUserId]
-    );
+    const users = await prisma.user.findMany({
+      where: {
+        id: { not: currentUserId }
+      }
+    });
 
-    return result.rows.map((row) => ({
-      id: row.id as number,
-      displayName: (row.display_name as string) ?? null,
-      handle: (row.handle as string) ?? null,
-      avatarUrl: (row.avatar_url as string) ?? null,
+    // Sorting locally to match COALESCE logic, as Prisma orderBy doesn't directly support COALESCE
+    users.sort((a, b) => {
+      const nameA = a.displayName || a.handle || 'User';
+      const nameB = b.displayName || b.handle || 'User';
+      return nameA.localeCompare(nameB);
+    });
+
+    return users.map((row) => ({
+      id: row.id,
+      displayName: row.displayName,
+      handle: row.handle,
+      avatarUrl: row.avatarUrl,
     }));
   } catch (err) {
     throw err;
@@ -36,53 +35,40 @@ export async function listDirectMessages(params: {
     const { userId, otherUserId, limit } = params;
     const setLimit = Math.min(Math.max(limit || 50, 1), 200);
 
-    const result = await query(
-      `
-            SELECT
-              dm.id,
-              dm.sender_user_id,
-              dm.recipient_user_id,
-              dm.body,
-              dm.image_url,
-              dm.created_at,
-              s.display_name AS sender_display_name,
-              s.handle AS sender_handle,
-              s.avatar_url AS sender_avatar,
-              r.display_name AS recipient_display_name,
-              r.handle AS recipient_handle,
-              r.avatar_url AS recipient_avatar
-            FROM direct_messages dm
-            JOIN users s ON s.id = dm.sender_user_id
-            JOIN users r ON r.id = dm.recipient_user_id
-            WHERE
-              (dm.sender_user_id = $1 AND dm.recipient_user_id = $2)
-              OR
-              (dm.sender_user_id = $2 AND dm.recipient_user_id = $1)
-            ORDER BY dm.created_at DESC
-            LIMIT $3
+    const messages = await prisma.directMessage.findMany({
+      where: {
+        OR: [
+          { senderUserId: userId, recipientUserId: otherUserId },
+          { senderUserId: otherUserId, recipientUserId: userId }
+        ]
+      },
+      orderBy: { createdAt: "desc" },
+      take: setLimit,
+      include: {
+        sender: true,
+        recipient: true
+      }
+    });
 
-            `,
-      [userId, otherUserId, setLimit]
-    );
+    // Prisma returns them in desc order, the original code reversed them to asc order
+    messages.reverse();
 
-    const rows = result.rows.slice().reverse();
-
-    return rows.map((row) => ({
-      id: row.id as number,
-      senderUserId: row.sender_user_id as number,
-      recipientUserId: row.recipient_user_id as number,
-      body: (row.body as string) ?? null,
-      imageUrl: (row.image_url as string) ?? null,
-      createdAt: (row.created_at as Date).toISOString(),
+    return messages.map((row) => ({
+      id: row.id,
+      senderUserId: row.senderUserId,
+      recipientUserId: row.recipientUserId,
+      body: row.body,
+      imageUrl: row.imageUrl,
+      createdAt: row.createdAt.toISOString(),
       sender: {
-        displayName: (row.sender_display_name as string) ?? null,
-        handle: (row.sender_handle as string) ?? null,
-        avatarUrl: (row.sender_avatar as string) ?? null,
+        displayName: row.sender.displayName,
+        handle: row.sender.handle,
+        avatarUrl: row.sender.avatarUrl,
       },
       recipient: {
-        displayName: (row.recipient_display_name as string) ?? null,
-        handle: (row.recipient_handle as string) ?? null,
-        avatarUrl: (row.recipient_avatar as string) ?? null,
+        displayName: row.recipient.displayName,
+        handle: row.recipient.handle,
+        avatarUrl: row.recipient.avatarUrl,
       },
     }));
   } catch (err) {
@@ -105,63 +91,35 @@ export async function createDirectMessage(params: {
     throw new Error("Message body or image is required");
   }
 
-  const insertRes = await query(
-    `
-        INSERT INTO direct_messages (sender_user_id, recipient_user_id, body, image_url)
-        VALUES ($1, $2, $3, $4)
-        RETURNING id, created_at
-        `,
-    [senderUserId, recipientUserId, trimmedBody || null, setImageUrl]
-  );
-
-  const row = insertRes.rows[0];
-
-  const fullRes = await query(
-    `
-         SELECT
-              dm.id,
-              dm.sender_user_id,
-              dm.recipient_user_id,
-              dm.body,
-              dm.image_url,
-              dm.created_at,
-              s.display_name AS sender_display_name,
-              s.handle AS sender_handle,
-              s.avatar_url AS sender_avatar,
-              r.display_name AS recipient_display_name,
-              r.handle AS recipient_handle,
-              r.avatar_url AS recipient_avatar
-            FROM direct_messages dm
-            JOIN users s ON s.id = dm.sender_user_id
-            JOIN users r ON r.id = dm.recipient_user_id
-            WHERE dm.id = $1
-            LIMIT 1
-        `,
-    [row.id]
-  );
-
-  const fullRow = fullRes.rows[0];
-
-  if (!fullRow) {
-    throw new Error("Failed to load inserted direct message (DM)");
-  }
+  const message = await prisma.directMessage.create({
+    data: {
+      senderUserId,
+      recipientUserId,
+      body: trimmedBody || null,
+      imageUrl: setImageUrl
+    },
+    include: {
+      sender: true,
+      recipient: true
+    }
+  });
 
   return {
-    id: fullRow.id as number,
-    senderUserId: fullRow.sender_user_id as number,
-    recipientUserId: fullRow.recipient_user_id as number,
-    body: (fullRow.body as string) ?? null,
-    imageUrl: (fullRow.image_url as string) ?? null,
-    createdAt: (fullRow.created_at as Date).toISOString(),
+    id: message.id,
+    senderUserId: message.senderUserId,
+    recipientUserId: message.recipientUserId,
+    body: message.body,
+    imageUrl: message.imageUrl,
+    createdAt: message.createdAt.toISOString(),
     sender: {
-      displayName: (fullRow.sender_display_name as string) ?? null,
-      handle: (fullRow.sender_handle as string) ?? null,
-      avatarUrl: (fullRow.sender_avatar as string) ?? null,
+      displayName: message.sender.displayName,
+      handle: message.sender.handle,
+      avatarUrl: message.sender.avatarUrl,
     },
     recipient: {
-      displayName: (fullRow.recipient_display_name as string) ?? null,
-      handle: (fullRow.recipient_handle as string) ?? null,
-      avatarUrl: (fullRow.recipient_avatar as string) ?? null,
+      displayName: message.recipient.displayName,
+      handle: message.recipient.handle,
+      avatarUrl: message.recipient.avatarUrl,
     },
   };
 }

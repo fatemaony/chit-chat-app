@@ -1,5 +1,5 @@
-import { createApp } from "./app.js";
 import { env } from "./config/env.js";
+import { createApp } from "./app.js";
 import { assertDatabaseConnection } from "./db/db.js";
 import { logger } from "./lib/logger.js";
 import  http  from 'node:http';
@@ -26,9 +26,10 @@ async function boostrap(){
       logger.info(`Server is running on port: http://localhost:${port}`);
     });
   } catch (err) {
-    logger.error('Failed to start the server',`${(err as Error).message}`);
+    logger.error(`Failed to start the server: ${(err as Error).message}`);
+    console.error(err);
     process.exit(1);
   }
 }
 
-boostrap();
+boostrap();

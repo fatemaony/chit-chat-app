@@ -21,23 +21,26 @@ async function fetchClerkProfile(clerkUserId: string) {
 
   const email = primaryEmail?.emailAddress ?? null;
   const avatarUrl = clerkUser?.imageUrl || null;
+  const firstName = clerkUser?.firstName || "user";
 
   return {
     fullName,
     email,
     avatarUrl,
+    firstName,
   };
 }
 
 export async function getUserFromClerk(
   clerkUserId: string
 ): Promise<UserProfile> {
-  const { fullName, email, avatarUrl } = await fetchClerkProfile(clerkUserId);
+  const { fullName, email, avatarUrl, firstName } = await fetchClerkProfile(clerkUserId);
 
   const user = await upsertUserFromClerkProfile({
     clerkUserId,
     displayName: fullName,
     avatarUrl,
+    firstName,
   });
 
   return {

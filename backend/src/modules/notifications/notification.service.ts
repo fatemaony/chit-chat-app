@@ -1,6 +1,6 @@
-import { query } from "../../db/db.js";
+import { prisma } from "../../db/db.js";
 import { getIo } from "../../realtime/io.js";
-import { mapNotificationsRow, NotificationRow } from "./notifications.types.js";
+import { Notification } from "./notifications.types.js";
 
 export async function createReplyNotification(params: {
   threadId: number;
@@ -8,68 +8,45 @@ export async function createReplyNotification(params: {
 }) {
   const { threadId, actorUserId } = params;
 
-  const threadRes = await query(
-    `
-        SELECT author_user_id
-        FROM threads
-        WHERE id = $1
-        LIMIT 1
-        `,
-    [threadId]
-  );
+  const thread = await prisma.thread.findUnique({
+    where: { id: threadId },
+    select: { authorUserId: true }
+  });
 
-  const row = threadRes.rows[0] as { author_user_id: number } | undefined;
-  if (!row) {
+  if (!thread) {
     return;
   }
 
-  const authorUserId = row.author_user_id;
+  const authorUserId = thread.authorUserId;
   if (authorUserId === actorUserId) return;
 
-  const insertRes = await query(
-    `
-     INSERT INTO notifications (user_id, actor_user_id, thread_id, type)
-     VALUES ($1, $2, $3, 'REPLY_ON_THREAD')
-     RETURNING id, created_at
-     `,
-    [authorUserId, actorUserId, threadId]
-  );
+  const noti = await prisma.notification.create({
+    data: {
+      userId: authorUserId,
+      actorUserId,
+      threadId,
+      type: 'REPLY_ON_THREAD'
+    },
+    include: {
+      actor: true,
+      thread: true
+    }
+  });
 
-  const notiRow = insertRes.rows[0] as { id: number };
-  if (!notiRow) {
-    return;
-  }
-
-  const fullRes = await query(
-    `
-        SELECT 
-          n.id,
-          n.type,
-          n.thread_id,
-          n.created_at,
-          n.read_at,
-          actor.display_name AS actor_display_name,
-          actor.handle AS actor_handle,
-          t.title AS thread_title
-        FROM notifications n
-        JOIN users actor ON actor.id = n.actor_user_id
-        JOIN threads t ON t.id = n.thread_id
-        WHERE n.id = $1
-        LIMIT 1
-
-        `,
-    [notiRow.id]
-  );
-
-  const fullRow = fullRes.rows[0] as NotificationRow | undefined;
-  if (!fullRow) {
-    return;
-  }
-
-  const payload = mapNotificationsRow(fullRow);
-
-  // emit first socket event
-  // notification:new
+  const payload: Notification = {
+    id: noti.id,
+    type: noti.type as "REPLY_ON_THREAD" | "LIKE_ON_THREAD",
+    threadId: noti.threadId,
+    createdAt: noti.createdAt.toISOString(),
+    readAt: noti.readAt ? noti.readAt.toISOString() : null,
+    actor: {
+      displayName: noti.actor.displayName,
+      handle: noti.actor.handle,
+    },
+    thread: {
+      title: noti.thread.title,
+    },
+  };
 
   const io = getIo();
   if (io) {
@@ -86,68 +63,45 @@ export async function createLikeNotification(params: {
 }) {
   const { threadId, actorUserId } = params;
 
-  const threadRes = await query(
-    `
-        SELECT author_user_id
-        FROM threads
-        WHERE id = $1
-        LIMIT 1
-        `,
-    [threadId]
-  );
+  const thread = await prisma.thread.findUnique({
+    where: { id: threadId },
+    select: { authorUserId: true }
+  });
 
-  const row = threadRes.rows[0] as { author_user_id: number } | undefined;
-  if (!row) {
+  if (!thread) {
     return;
   }
 
-  const authorUserId = row.author_user_id;
+  const authorUserId = thread.authorUserId;
   if (authorUserId === actorUserId) return;
 
-  const insertRes = await query(
-    `
-     INSERT INTO notifications (user_id, actor_user_id, thread_id, type)
-     VALUES ($1, $2, $3, 'LIKE_ON_THREAD')
-     RETURNING id, created_at
-     `,
-    [authorUserId, actorUserId, threadId]
-  );
+  const noti = await prisma.notification.create({
+    data: {
+      userId: authorUserId,
+      actorUserId,
+      threadId,
+      type: 'LIKE_ON_THREAD'
+    },
+    include: {
+      actor: true,
+      thread: true
+    }
+  });
 
-  const notiRow = insertRes.rows[0] as { id: number };
-  if (!notiRow) {
-    return;
-  }
-
-  const fullRes = await query(
-    `
-        SELECT 
-          n.id,
-          n.type,
-          n.thread_id,
-          n.created_at,
-          n.read_at,
-          actor.display_name AS actor_display_name,
-          actor.handle AS actor_handle,
-          t.title AS thread_title
-        FROM notifications n
-        JOIN users actor ON actor.id = n.actor_user_id
-        JOIN threads t ON t.id = n.thread_id
-        WHERE n.id = $1
-        LIMIT 1
-
-        `,
-    [notiRow.id]
-  );
-
-  const fullRow = fullRes.rows[0] as NotificationRow | undefined;
-  if (!fullRow) {
-    return;
-  }
-
-  const payload = mapNotificationsRow(fullRow);
-
-  // emit first socket event
-  // notification:new
+  const payload: Notification = {
+    id: noti.id,
+    type: noti.type as "REPLY_ON_THREAD" | "LIKE_ON_THREAD",
+    threadId: noti.threadId,
+    createdAt: noti.createdAt.toISOString(),
+    readAt: noti.readAt ? noti.readAt.toISOString() : null,
+    actor: {
+      displayName: noti.actor.displayName,
+      handle: noti.actor.handle,
+    },
+    thread: {
+      title: noti.thread.title,
+    },
+  };
 
   const io = getIo();
   if (io) {
@@ -165,40 +119,35 @@ export async function listNotificationsForUser(params: {
   try {
     const { unreadOnly, userId } = params;
 
-    const conditions = ["n.user_id = $1"];
-    const values: unknown[] = [userId];
-
+    const where: any = { userId };
+    
     if (unreadOnly) {
-      conditions.push("n.read_at IS NULL");
+      where.readAt = null;
     }
 
-    const whereClause = `WHERE ${conditions.join(" AND ")}`;
+    const notifications = await prisma.notification.findMany({
+      where,
+      orderBy: { createdAt: "desc" },
+      include: {
+        actor: true,
+        thread: true
+      }
+    });
 
-    console.log(whereClause, userId, unreadOnly, "whereClause");
-
-    const result = await query(
-      `
-        SELECT 
-          n.id,
-          n.type,
-          n.thread_id,
-          n.created_at,
-          n.read_at,
-          actor.display_name AS actor_display_name,
-          actor.handle AS actor_handle,
-          t.title AS thread_title
-        FROM notifications n
-        JOIN users actor ON actor.id = n.actor_user_id
-        JOIN threads t ON t.id = n.thread_id
-        ${whereClause}
-        ORDER BY n.created_at DESC
-        `,
-      values
-    );
-
-    return result.rows.map((noti) =>
-      mapNotificationsRow(noti as NotificationRow)
-    );
+    return notifications.map((noti) => ({
+      id: noti.id,
+      type: noti.type as "REPLY_ON_THREAD" | "LIKE_ON_THREAD",
+      threadId: noti.threadId,
+      createdAt: noti.createdAt.toISOString(),
+      readAt: noti.readAt ? noti.readAt.toISOString() : null,
+      actor: {
+        displayName: noti.actor.displayName,
+        handle: noti.actor.handle,
+      },
+      thread: {
+        title: noti.thread.title,
+      },
+    }));
   } catch (err) {
     console.error("Error:", err);
     throw err;
@@ -211,26 +160,29 @@ export async function markNotificationRead(params: {
 }) {
   const { userId, notificationId } = params;
 
-  await query(
-    `
-        UPDATE notifications
-        SET read_at = COALESCE(read_at, NOW())
-        WHERE id = $1 AND user_id = $2
-        `,
-    [notificationId, userId]
-  );
-}
+  // We read first to see if readAt is null
+  const noti = await prisma.notification.findUnique({
+    where: { id: notificationId }
+  });
 
+  if (noti && noti.userId === userId && !noti.readAt) {
+    await prisma.notification.update({
+      where: { id: notificationId },
+      data: { readAt: new Date() }
+    });
+  }
+}
 
 export async function markAllNotificationsRead(params: { userId: number }) {
   const { userId } = params;
 
-  await query(
-    `
-        UPDATE notifications
-        SET read_at = COALESCE(read_at, NOW())
-        WHERE user_id = $1
-        `,
-    [userId]
-  );
+  await prisma.notification.updateMany({
+    where: { 
+      userId,
+      readAt: null
+    },
+    data: {
+      readAt: new Date()
+    }
+  });
 }

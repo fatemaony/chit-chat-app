@@ -1,4 +1,4 @@
-import { query } from "../../db/db.js";
+import { prisma } from "../../db/db.js";
 import { BadRequestError, NotFoundError } from "../../lib/errors.js";
 import { getThreadById } from "./threads.repository.js";
 
@@ -7,29 +7,19 @@ export async function listRepliesForThread(threadId: number) {
     throw new BadRequestError("Invalid thread Id");
   }
 
-  const result = await query(
-    `
-        SELECT
-          r.id,
-          r.body,
-          r.created_at,
-          u.display_name AS author_display_name,
-          u.handle AS author_handle
-        FROM replies r
-        JOIN users u ON u.id = r.author_user_id
-        WHERE r.thread_id = $1
-        ORDER BY r.created_at ASC
-        `,
-    [threadId]
-  );
+  const replies = await prisma.reply.findMany({
+    where: { threadId },
+    orderBy: { createdAt: "asc" },
+    include: { author: true }
+  });
 
-  return result.rows.map((row) => ({
-    id: row.id as number,
-    body: row.body as string,
-    createdAt: row.created_at as Date,
+  return replies.map((reply) => ({
+    id: reply.id,
+    body: reply.body,
+    createdAt: reply.createdAt,
     author: {
-      displayName: (row.author_display_name as string) ?? null,
-      handle: (row.author_handle as string) ?? null,
+      displayName: reply.author.displayName,
+      handle: reply.author.handle,
     },
   }));
 }
@@ -41,74 +31,43 @@ export async function createReply(params: {
 }) {
   const { body, threadId, authorUserId } = params;
 
-  const result = await query(
-    `
-        INSERT INTO replies (thread_id, author_user_id, body)
-        VALUES ($1, $2, $3)
-        RETURNING id, created_at
-        `,
-    [threadId, authorUserId, body]
-  );
-
-  const row = result.rows[0];
-
-  const fullRes = await query(
-    `
-        SELECT 
-          r.id,
-          r.body,
-          r.created_at,
-          u.display_name AS author_display_name,
-          u.handle AS author_handle
-        FROM replies r
-        JOIN users u ON u.id = r.author_user_id
-        WHERE r.id = $1
-        LIMIT 1
-        `,
-    [row.id]
-  );
-
-  const replyRow = fullRes.rows[0];
+  const reply = await prisma.reply.create({
+    data: {
+      threadId,
+      authorUserId,
+      body,
+    },
+    include: { author: true }
+  });
 
   return {
-    id: replyRow.id as number,
-    body: replyRow.body as string,
-    createdAt: replyRow.created_at as Date,
+    id: reply.id,
+    body: reply.body,
+    createdAt: reply.createdAt,
     author: {
-      displayName: (replyRow.author_display_name as string) ?? null,
-      handle: (replyRow.author_handle as string) ?? null,
+      displayName: reply.author.displayName,
+      handle: reply.author.handle,
     },
   };
 }
 
 export async function findReplyAuthor(replyId: number) {
-  const result = await query(
-    `
-         SELECT author_user_id
-         FROM replies
-         WHERE id = $1
-         LIMIT 1
-         `,
-    [replyId]
-  );
+  const reply = await prisma.reply.findUnique({
+    where: { id: replyId },
+    select: { authorUserId: true }
+  });
 
-  const row = result.rows[0];
-
-  if (!row) {
+  if (!reply) {
     throw new NotFoundError("Reply not found!!!");
   }
 
-  return row.author_user_id as number;
+  return reply.authorUserId;
 }
 
 export async function deleteReplyById(replyId: number) {
-  await query(
-    `
-        DELETE FROM replies
-        WHERE id = $1
-        `,
-    [replyId]
-  );
+  await prisma.reply.delete({
+    where: { id: replyId }
+  });
 }
 
 export async function likeThreadOnce(params: {
@@ -117,14 +76,19 @@ export async function likeThreadOnce(params: {
 }) {
   const { threadId, userId } = params;
 
-  await query(
-    `
-    INSERT INTO thread_reactions (thread_id, user_id)
-    VALUES ($1, $2)
-    ON CONFLICT (thread_id, user_id) DO NOTHING
-    `,
-    [threadId, userId]
-  );
+  try {
+    await prisma.threadReaction.create({
+      data: {
+        threadId,
+        userId
+      }
+    });
+  } catch (err: any) {
+    // Ignore unique constraint violation (P2002) which acts like ON CONFLICT DO NOTHING
+    if (err.code !== 'P2002') {
+      throw err;
+    }
+  }
 }
 
 export async function removeThreadOnce(params: {
@@ -133,13 +97,12 @@ export async function removeThreadOnce(params: {
 }) {
   const { threadId, userId } = params;
 
-  await query(
-    `
-            DELETE FROM thread_reactions
-            WHERE thread_id = $1 AND user_id = $2
-            `,
-    [threadId, userId]
-  );
+  await prisma.threadReaction.deleteMany({
+    where: {
+      threadId,
+      userId
+    }
+  });
 }
 
 export async function getThreadDetailsWithCounts(params: {
@@ -150,42 +113,27 @@ export async function getThreadDetailsWithCounts(params: {
 
   const thread = await getThreadById(threadId);
 
-  const likeResult = await query(
-    `
-        SELECT COUNT(*)::int AS count
-        FROM thread_reactions
-        WHERE thread_id = $1
-        `,
-    [threadId]
-  );
+  const likeCount = await prisma.threadReaction.count({
+    where: { threadId }
+  });
 
-  const likeCount = (likeResult.rows[0]?.count as number | undefined) ?? 0;
-
-  const replyResult = await query(
-    `
-        SELECT COUNT(*)::int AS count
-        FROM replies
-        WHERE thread_id = $1
-        `,
-    [threadId]
-  );
-  const replyCount = (replyResult.rows[0]?.count as number | undefined) ?? 0;
+  const replyCount = await prisma.reply.count({
+    where: { threadId }
+  });
 
   let viewerHasLikedThisPostOrNot = false;
 
   if (viewerUserId) {
-    const viewerResult = await query(
-      `
-                    SELECT 1
-                    FROM thread_reactions
-                    WHERE thread_id = $1 AND user_id = $2
-                    LIMIT 1
-                    `,
-      [threadId, viewerUserId]
-    );
+    const reaction = await prisma.threadReaction.findUnique({
+      where: {
+        threadId_userId: {
+          threadId,
+          userId: viewerUserId
+        }
+      }
+    });
 
-    const count = viewerResult.rowCount ?? 0;
-    if (count > 0) {
+    if (reaction) {
       viewerHasLikedThisPostOrNot = true;
     }
   }

@@ -3,15 +3,15 @@ import { z } from "zod";
 
 const EnvSchema = z.object({
   PORT: z.string().default("5000"),
-  DB_HOST: z.string().default("localhost"),
-  DB_PORT: z.string().default("6450"),
-  DB_NAME: z.string().default("chit_chat_db"),
-  DB_USER: z.string().default("postgres"),
-  DB_PASSWORD: z.string().default("postgres"),
 
+  DATABASE_URL: z.string(),
 
   CLERK_PUBLISHABLE_KEY: z.string(),
-  CLERK_SECRET_KEY: z.string()
+  CLERK_SECRET_KEY: z.string(),
+
+  CLOUDINARY_CLOUD_NAME: z.string(),
+  CLOUDINARY_API_KEY: z.string(),
+  CLOUDINARY_API_SECRET: z.string(), 
 });
 
 

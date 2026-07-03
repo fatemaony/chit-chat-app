@@ -1,14 +1,6 @@
-import { query } from "../../db/db.js";
+import { prisma } from "../../db/db.js";
 import { NotFoundError } from "../../lib/errors.js";
-import {
-  mapThreadDetailRow,
-  mapThreadSummaryRow,
-  ThreadDetail,
-  ThreadDetailRow,
-  ThreadListFilter,
-  ThreadSummary,
-  ThreadSummaryRow,
-} from "./threads.types.js";
+import { ThreadDetail, ThreadListFilter, ThreadSummary } from "./threads.types.js";
 
 export function parseThreadListFilter(queryObj: {
   page?: unknown;
@@ -50,80 +42,74 @@ export async function createdThread(params: {
 }): Promise<ThreadDetail> {
   const { authorUserId, title, body, imageUrl } = params;
 
-  // category_id is kept as a placeholder (first seeded category) while the
-  // column exists in the schema — no migration needed to drop it yet.
-  const categoryRes = await query<{ id: number }>(
-    `SELECT id FROM categories ORDER BY id ASC LIMIT 1`
-  );
-  const placeholderCategoryId = categoryRes.rows[0]?.id ?? 1;
+  let placeholderCategory = await prisma.category.findFirst({
+    orderBy: { id: "asc" }
+  });
 
-  const insertRes = await query<{ id: number }>(
-    `
-        INSERT INTO threads (category_id, author_user_id, title, body, image_url)
-        VALUES ($1, $2, $3, $4, $5)
-        RETURNING id
-        `,
-    [placeholderCategoryId, authorUserId, title, body, imageUrl ?? null]
-  );
+  if (!placeholderCategory) {
+    placeholderCategory = await prisma.category.create({
+      data: {
+        slug: "general",
+        name: "General",
+        description: "General category"
+      }
+    });
+  }
 
-  const threadId = insertRes.rows[0].id;
+  const thread = await prisma.thread.create({
+    data: {
+      categoryId: placeholderCategory.id,
+      authorUserId,
+      title,
+      body,
+      imageUrl: imageUrl ?? null,
+    }
+  });
 
-  return getThreadById(threadId);
+  return getThreadById(thread.id);
 }
 
 export async function getThreadById(id: number): Promise<ThreadDetail> {
-  const result = await query<ThreadDetailRow>(
-    `
-        SELECT
-          t.id,
-          t.title,
-          t.body,
-          t.image_url,
-          t.created_at,
-          t.updated_at,
-          u.display_name AS author_display_name,
-          u.handle AS author_handle
-        FROM threads t
-        JOIN users u ON u.id = t.author_user_id
-        WHERE t.id = $1
-        LIMIT 1
-        `,
-    [id]
-  );
+  const thread = await prisma.thread.findUnique({
+    where: { id },
+    include: { author: true }
+  });
 
-  const row = result.rows[0];
-
-  if (!row) {
+  if (!thread) {
     throw new NotFoundError("Thread not found");
   }
 
-  return mapThreadDetailRow(row);
+  return {
+    id: thread.id,
+    title: thread.title,
+    body: thread.body,
+    imageUrl: thread.imageUrl,
+    createdAt: thread.createdAt,
+    updatedAt: thread.updatedAt,
+    author: {
+      displayName: thread.author.displayName,
+      handle: thread.author.handle,
+    },
+  };
 }
 
 export async function findThreadAuthor(threadId: number): Promise<number> {
-  const result = await query<{ author_user_id: number }>(
-    `
-        SELECT author_user_id
-        FROM threads
-        WHERE id = $1
-        LIMIT 1
-        `,
-    [threadId]
-  );
+  const thread = await prisma.thread.findUnique({
+    where: { id: threadId },
+    select: { authorUserId: true }
+  });
 
-  const row = result.rows[0];
-
-  if (!row) {
+  if (!thread) {
     throw new NotFoundError("Thread not found");
   }
 
-  return row.author_user_id;
+  return thread.authorUserId;
 }
 
 export async function deleteThreadById(threadId: number): Promise<void> {
-  await query(`DELETE FROM thread_reactions WHERE thread_id = $1`, [threadId]);
-  await query(`DELETE FROM replies WHERE thread_id = $1`, [threadId]);
-  await query(`DELETE FROM threads WHERE id = $1`, [threadId]);
+  await prisma.thread.delete({
+    where: { id: threadId }
+  });
 }
 
 export async function updateThreadById(params: {
@@ -134,17 +120,15 @@ export async function updateThreadById(params: {
 }): Promise<ThreadDetail> {
   const { threadId, title, body, imageUrl } = params;
 
-  await query(
-    `
-    UPDATE threads
-    SET title = $1,
-        body = $2,
-        image_url = $3,
-        updated_at = NOW()
-    WHERE id = $4
-    `,
-    [title, body, imageUrl ?? null, threadId]
-  );
+  await prisma.thread.update({
+    where: { id: threadId },
+    data: {
+      title,
+      body,
+      imageUrl: imageUrl ?? null,
+      updatedAt: new Date()
+    }
+  });
 
   return getThreadById(threadId);
 }
@@ -154,50 +138,48 @@ export async function listThreads(
 ): Promise<ThreadSummary[]> {
   const { page, pageSize, authorHandle, sort, search } = filter;
 
-  const conditions: string[] = [];
-  const params: unknown[] = [];
-  let idx = 1;
+  const skip = (page - 1) * pageSize;
+  const take = pageSize;
 
+  const where: any = {};
+  
   if (authorHandle) {
-    conditions.push(`u.handle ILIKE $${idx++}`);
-    params.push(`%${authorHandle}%`);
+    where.author = {
+      handle: {
+        contains: authorHandle,
+        mode: "insensitive"
+      }
+    };
   }
 
   if (search) {
-    conditions.push(`(t.title ILIKE $${idx} OR t.body ILIKE $${idx})`);
-    params.push(`%${search}%`);
-    idx++;
+    where.OR = [
+      { title: { contains: search, mode: "insensitive" } },
+      { body: { contains: search, mode: "insensitive" } }
+    ];
   }
 
-  const whereClause = conditions.length
-    ? `WHERE ${conditions.join(" AND ")}`
-    : "";
+  const threads = await prisma.thread.findMany({
+    where,
+    skip,
+    take,
+    orderBy: {
+      createdAt: sort === "old" ? "asc" : "desc"
+    },
+    include: {
+      author: true
+    }
+  });
 
-  const orderClause =
-    sort === "old" ? "ORDER BY t.created_at ASC" : "ORDER BY t.created_at DESC";
-
-  const offset = (page - 1) * pageSize;
-
-  params.push(pageSize, offset);
-
-  const result = await query<ThreadSummaryRow>(
-    `
-    SELECT
-      t.id,
-      t.title,
-      LEFT(t.body, 200) AS excerpt,
-      t.image_url,
-      t.created_at,
-      u.display_name AS author_display_name,
-      u.handle AS author_handle
-    FROM threads t
-    JOIN users u ON u.id = t.author_user_id
-    ${whereClause}
-    ${orderClause}
-    LIMIT $${idx++} OFFSET $${idx}
-    `,
-    params
-  );
-
-  return result.rows.map(mapThreadSummaryRow);
+  return threads.map((t) => ({
+    id: t.id,
+    title: t.title,
+    excerpt: t.body.substring(0, 200),
+    imageUrl: t.imageUrl,
+    createdAt: t.createdAt,
+    author: {
+      displayName: t.author.displayName,
+      handle: t.author.handle,
+    }
+  }));
 }

@@ -1,47 +1,64 @@
-import { query } from "../../db/db.js";
-import { User, UserRow } from "./user.types.js";
+import { prisma } from "../../db/db.js";
+import { User } from "./user.types.js";
 
-function hydrateUser(row: UserRow): User {
-  return {
-    id: row.id,
-    clerkUserId: row.clerk_user_id,
-    displayName: row.display_name,
-    handle: row.handle,
-    bio: row.bio,
-    avatarUrl: row.avatar_url,
-    createdAt: row.created_at,
-    updatedAt: row.updated_at,
-  };
+async function generateUniqueHandle(baseName: string): Promise<string> {
+  const sanitizedBase = baseName.toLowerCase().replace(/[^a-z0-9]/g, "") || "user";
+  let currentHandle = sanitizedBase;
+  let counter = 1;
+
+  while (true) {
+    const existing = await prisma.user.findUnique({
+      where: { handle: currentHandle }
+    });
+    if (!existing) {
+      return currentHandle;
+    }
+    currentHandle = `${sanitizedBase}${counter}`;
+    counter++;
+  }
 }
 
 export async function upsertUserFromClerkProfile(params: {
   clerkUserId: string;
   displayName: string | null;
   avatarUrl: string | null;
+  firstName: string;
 }): Promise<User> {
-  const { clerkUserId, displayName, avatarUrl } = params;
+  const { clerkUserId, displayName, avatarUrl, firstName } = params;
 
-  const result = await query<UserRow>(
-    `
-        INSERT INTO users (clerk_user_id, display_name, avatar_url)
-        VALUES ($1, $2, $3)
-        ON CONFLICT (clerk_user_id)
-        DO UPDATE SET
-           updated_at   = NOW()
-        RETURNING
-           id,
-           clerk_user_id,
-           display_name,
-           handle,
-           avatar_url,
-           bio,
-           created_at,
-           updated_at
-        `,
-    [clerkUserId, displayName, avatarUrl]
-  );
+  let user = await prisma.user.findUnique({ where: { clerkUserId } });
 
-  return hydrateUser(result.rows[0]);
+  if (user) {
+    user = await prisma.user.update({
+      where: { clerkUserId },
+      data: {
+        displayName,
+        avatarUrl,
+        updatedAt: new Date()
+      }
+    });
+  } else {
+    const handle = await generateUniqueHandle(firstName);
+    user = await prisma.user.create({
+      data: {
+        clerkUserId,
+        displayName,
+        avatarUrl,
+        handle
+      }
+    });
+  }
+
+  return {
+    id: user.id,
+    clerkUserId: user.clerkUserId,
+    displayName: user.displayName,
+    handle: user.handle,
+    bio: user.bio,
+    avatarUrl: user.avatarUrl,
+    createdAt: user.createdAt,
+    updatedAt: user.updatedAt,
+  };
 }
 
 export async function repoUpdateUserProfile(params: {
@@ -55,58 +72,29 @@ export async function repoUpdateUserProfile(params: {
 
   console.log(clerkUserId, displayName, handle, bio, avatarUrl);
 
-  const setClauses: string[] = [];
-  const values: unknown[] = [clerkUserId]; // $1 is always the clerk user id (used in WHERE)
-  let idx = 2; // $2, $3
+  const updateData: any = {};
+  if (displayName !== undefined) updateData.displayName = displayName;
+  if (handle !== undefined) updateData.handle = handle;
+  if (bio !== undefined) updateData.bio = bio;
+  if (avatarUrl !== undefined) updateData.avatarUrl = avatarUrl;
+  
+  updateData.updatedAt = new Date();
 
-  // push a column=$index -> string -> push into setClauses
-  // push the actual values into this values array
+  const user = await prisma.user.update({
+    where: { clerkUserId },
+    data: updateData
+  });
 
-  if (typeof displayName !== undefined) {
-    setClauses.push(`display_name = $${idx++}`); // display_name = $2
-    values.push(displayName);
-  }
+  console.log(user);
 
-  if (typeof handle !== undefined) {
-    setClauses.push(`handle = $${idx++}`); // display_name = $2
-    values.push(handle);
-  }
-
-  if (typeof bio !== undefined) {
-    setClauses.push(`bio = $${idx++}`); // display_name = $2
-    values.push(bio);
-  }
-
-  if (typeof avatarUrl !== undefined) {
-    setClauses.push(`avatar_url = $${idx++}`); // display_name = $2
-    values.push(avatarUrl);
-  }
-
-  setClauses.push(`updated_at = NOW()`);
-
-  const result = await query<UserRow>(
-    `
-      UPDATE users
-      SET ${setClauses.join(", ")}
-      WHERE clerk_user_id = $1
-      RETURNING
-        id,
-        clerk_user_id,
-        display_name,
-        handle,
-        avatar_url,
-        bio,
-        created_at,
-        updated_at
-
-      `,
-    values
-  );
-  console.log(result);
-
-  if (result.rows.length === 0) {
-    throw new Error(`no user found for clerk user id= ${clerkUserId}`);
-  }
-
-  return hydrateUser(result.rows[0]);
+  return {
+    id: user.id,
+    clerkUserId: user.clerkUserId,
+    displayName: user.displayName,
+    handle: user.handle,
+    bio: user.bio,
+    avatarUrl: user.avatarUrl,
+    createdAt: user.createdAt,
+    updatedAt: user.updatedAt,
+  };
 }

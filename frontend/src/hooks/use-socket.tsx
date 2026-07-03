@@ -37,8 +37,10 @@ export function SocketProvider({ children }: { children: ReactNode }) {
       return;
     }
 
-    const baseUrl =
-      process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:5000";
+    let baseUrl = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:5000";
+    if (typeof window !== "undefined" && window.location.hostname !== "localhost") {
+      baseUrl = `http://${window.location.hostname}:5000`;
+    }
 
     const socketInstance: Socket = io(baseUrl, {
       auth: { userId },
