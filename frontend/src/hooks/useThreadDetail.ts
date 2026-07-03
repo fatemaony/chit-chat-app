@@ -1,13 +1,16 @@
 import { createBrowserApiClient } from "@/lib/api-client";
 import type { Comment, ThreadDetail } from "@/types/thread";
 import { useAuth } from "@clerk/nextjs";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { ThreadService } from "@/services/thread.service";
+import { useRouter, useSearchParams } from "next/navigation";
 
 export function useThreadDetail(id: number) {
   const { getToken, userId } = useAuth();
   const apiClient = useMemo(() => createBrowserApiClient(getToken), [getToken]);
+  const router = useRouter();
+  const searchParams = useSearchParams();
 
   const [thread, setThread] = useState<ThreadDetail | null>(null);
   const [loading, setLoading] = useState(true);
@@ -18,9 +21,18 @@ export function useThreadDetail(id: number) {
   const [isPostingComment, setIsPostingComment] = useState(false);
   const [commentBeingDeletedId, setCommentBeingDeletedId] = useState<number | null>(null);
 
-  const [isLiked, setIsLiked] = useState(false);
-  const [likeCount, setLikeCount] = useState(0);
-  const [isTogglingLike, setIsTogglingLike] = useState(false);
+  const [isDeletingThread, setIsDeletingThread] = useState(false);
+
+  // Edit modal state
+  const [isEditModalOpen, setIsEditModalOpen] = useState(false);
+  const [editTitle, setEditTitle] = useState("");
+  const [editBody, setEditBody] = useState("");
+  const [editImageUrl, setEditImageUrl] = useState<string | null>(null);
+  const [editImageFile, setEditImageFile] = useState<File | null>(null);
+  const [editImagePreview, setEditImagePreview] = useState<string | null>(null);
+  const [isUploadingEditImage, setIsUploadingEditImage] = useState(false);
+  const [isSavingEdit, setIsSavingEdit] = useState(false);
+  const editFileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     let isMounted = true;
@@ -37,8 +49,6 @@ export function useThreadDetail(id: number) {
         if (!isMounted) return;
 
         setThread(extractThreadDetails);
-        setLikeCount(extractThreadDetails?.likeCount);
-        setIsLiked(extractThreadDetails?.viewerHasLikedThisPostOrNot);
         setComments(extractCommentsList);
 
         if (userId) {
@@ -66,6 +76,118 @@ export function useThreadDetail(id: number) {
       isMounted = false;
     };
   }, [apiClient, id, userId]);
+
+  // Auto-open edit modal when ?edit=true is present in the URL (e.g. from home page)
+  useEffect(() => {
+    if (searchParams.get("edit") === "true" && thread && !isEditModalOpen) {
+      openEditModal();
+      // Remove the query param cleanly without a full navigation
+      const url = new URL(window.location.href);
+      url.searchParams.delete("edit");
+      window.history.replaceState(null, "", url.toString());
+    }
+  // openEditModal is stable (defined outside render loop), thread triggers when loaded
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [thread, searchParams]);
+
+  // ── Edit helpers ──────────────────────────────────────────────────────────
+
+  function openEditModal() {
+    if (!thread) return;
+    setEditTitle(thread.title);
+    setEditBody(thread.body);
+    setEditImageUrl(thread.imageUrl ?? null);
+    setEditImagePreview(thread.imageUrl ?? null);
+    setEditImageFile(null);
+    setIsEditModalOpen(true);
+  }
+
+  function closeEditModal() {
+    setIsEditModalOpen(false);
+    setEditImageFile(null);
+    setEditImagePreview(null);
+    if (editFileInputRef.current) editFileInputRef.current.value = "";
+  }
+
+  function handleEditImageSelect(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (!file.type.startsWith("image/")) {
+      toast.error("Invalid file", { description: "Please select an image file." });
+      return;
+    }
+    if (file.size > 10 * 1024 * 1024) {
+      toast.error("File too large", { description: "Image must be under 10 MB." });
+      return;
+    }
+    setEditImageFile(file);
+    setEditImagePreview(URL.createObjectURL(file));
+  }
+
+  function handleEditImageRemove() {
+    setEditImageFile(null);
+    setEditImagePreview(null);
+    setEditImageUrl(null);
+    if (editFileInputRef.current) editFileInputRef.current.value = "";
+  }
+
+  async function handleSaveEdit() {
+    if (!thread) return;
+
+    const trimmedTitle = editTitle.trim();
+    const trimmedBody = editBody.trim();
+
+    if (trimmedTitle.length < 5) {
+      toast.error("Title too short", { description: "Title must be at least 5 characters." });
+      return;
+    }
+    if (trimmedBody.length < 10) {
+      toast.error("Description too short", { description: "Description must be at least 10 characters." });
+      return;
+    }
+
+    try {
+      setIsSavingEdit(true);
+
+      let finalImageUrl: string | null = editImageUrl;
+
+      // Upload new image if one was selected
+      if (editImageFile) {
+        setIsUploadingEditImage(true);
+        try {
+          const result = await ThreadService.uploadImage(apiClient, editImageFile);
+          finalImageUrl = result.url;
+        } catch {
+          toast.error("Image upload failed", {
+            description: "Could not upload the image. Please try again.",
+          });
+          return;
+        } finally {
+          setIsUploadingEditImage(false);
+        }
+      }
+
+      const updated = await ThreadService.updateThread(apiClient, thread.id, {
+        title: trimmedTitle,
+        body: trimmedBody,
+        imageUrl: finalImageUrl,
+      });
+
+      setThread(updated);
+      closeEditModal();
+      toast.success("Thread updated!", { description: "Your changes have been saved." });
+    } catch (e) {
+      console.log(e);
+      toast.error("Failed to update thread", {
+        description: "Something went wrong. Please try again.",
+      });
+    } finally {
+      setIsSavingEdit(false);
+      setIsUploadingEditImage(false);
+    }
+  }
+
+  // ── Comment handlers ──────────────────────────────────────────────────────
 
   async function handleAddComment() {
     const trimmedComment = newComment.trim();
@@ -118,34 +240,28 @@ export function useThreadDetail(id: number) {
     }
   }
 
-  async function handleToggleLike() {
+  async function handleDeleteThread() {
     if (!thread) return;
 
-    if (!userId) {
-      toast.error("Sign in is needed", {
-        description: "Please sign in to add a comment!!!",
-      });
-      return;
-    }
+    const confirmed = window.confirm(
+      "Are you sure you want to delete this thread? This action cannot be undone."
+    );
+    if (!confirmed) return;
 
     try {
-      setIsTogglingLike(true);
-
-      if (isLiked) {
-        await ThreadService.unlikeThread(apiClient, thread.id);
-        setIsLiked(false);
-        setLikeCount((prev) => Math.max(0, prev - 1));
-        toast.success("Like removed", { description: "Yout upvote has been removed" });
-      } else {
-        await ThreadService.likeThread(apiClient, thread.id);
-        setIsLiked(true);
-        setLikeCount((prev) => prev + 1);
-        toast.success("Like added", { description: "Yout upvote has been added" });
-      }
+      setIsDeletingThread(true);
+      await ThreadService.deleteThread(apiClient, thread.id);
+      toast.success("Thread deleted", {
+        description: "Your thread has been deleted.",
+      });
+      router.push("/");
     } catch (e) {
       console.log(e);
+      toast.error("Failed to delete thread", {
+        description: "Something went wrong. Please try again.",
+      });
     } finally {
-      setIsTogglingLike(false);
+      setIsDeletingThread(false);
     }
   }
 
@@ -158,12 +274,25 @@ export function useThreadDetail(id: number) {
     setNewComment,
     isPostingComment,
     commentBeingDeletedId,
-    isLiked,
-    likeCount,
-    isTogglingLike,
+    isDeletingThread,
     userId,
     handleAddComment,
     handleDeleteComment,
-    handleToggleLike,
+    handleDeleteThread,
+    // edit
+    isEditModalOpen,
+    editTitle,
+    setEditTitle,
+    editBody,
+    setEditBody,
+    editImagePreview,
+    editFileInputRef,
+    isUploadingEditImage,
+    isSavingEdit,
+    openEditModal,
+    closeEditModal,
+    handleEditImageSelect,
+    handleEditImageRemove,
+    handleSaveEdit,
   };
 }

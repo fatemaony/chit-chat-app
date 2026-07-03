@@ -1,10 +1,11 @@
 import { Router } from "express";
 import {
   createdThread,
-  getThreadById,
-  listCategories,
+  deleteThreadById,
+  findThreadAuthor,
   listThreads,
   parseThreadListFilter,
+  updateThreadById,
 } from "../modules/threads/threads.repository.js";
 import { getAuth } from "../config/clerk.js";
 import { BadRequestError, UnauthorizedError } from "../lib/errors.js";
@@ -29,17 +30,7 @@ export const threadsRouter = Router();
 const CreatedThreadSchema = z.object({
   title: z.string().trim().min(5).max(200),
   body: z.string().trim().min(10).max(2000),
-  categorySlug: z.string().trim().min(1),
-});
-
-threadsRouter.get("/categories", async (_req, res, next) => {
-  try {
-    const extractListOfCategories = await listCategories();
-
-    res.json({ data: extractListOfCategories });
-  } catch (err) {
-    next(err);
-  }
+  imageUrl: z.string().url().nullable().optional(),
 });
 
 threadsRouter.post("/threads", async (req, res, next) => {
@@ -54,10 +45,10 @@ threadsRouter.post("/threads", async (req, res, next) => {
     const profile = await getUserFromClerk(auth.userId);
 
     const newlyCreatedThread = await createdThread({
-      categorySlug: parsedBody.categorySlug,
       authorUserId: profile.user.id,
       title: parsedBody.title,
       body: parsedBody.body,
+      imageUrl: parsedBody.imageUrl ?? null,
     });
 
     res.status(201).json({ data: newlyCreatedThread });
@@ -98,7 +89,7 @@ threadsRouter.get("/threads", async (req, res, next) => {
     const filter = parseThreadListFilter({
       page: req.query.page,
       pageSize: req.query.pageSize,
-      category: req.query.category,
+      author: req.query.author,
       q: req.query.q,
       sort: req.query.sort,
     });
@@ -153,8 +144,6 @@ threadsRouter.post("/threads/:threadId/replies", async (req, res, next) => {
       authorUserId: profile.user.id,
       body: bodyRaw,
     });
-
-    // notification -> trigger here but later
 
     await createReplyNotification({
       threadId,
@@ -213,8 +202,6 @@ threadsRouter.post("/threads/:threadId/like", async (req, res, next) => {
       userId: profile.user.id,
     });
 
-    //  notifications -> logic but later
-
     await createLikeNotification({
       threadId,
       actorUserId: profile.user.id,
@@ -243,6 +230,73 @@ threadsRouter.delete("/threads/:threadId/like", async (req, res, next) => {
       threadId,
       userId: profile.user.id,
     });
+
+    res.status(204).send();
+  } catch (err) {
+    next(err);
+  }
+});
+
+threadsRouter.patch("/threads/:threadId", async (req, res, next) => {
+  try {
+    const auth = getAuth(req);
+    if (!auth.userId) {
+      throw new UnauthorizedError("Unauthorized");
+    }
+
+    const threadId = Number(req.params.threadId);
+    if (!Number.isInteger(threadId) || threadId <= 0) {
+      throw new BadRequestError("Invalid thread id");
+    }
+
+    const UpdateThreadSchema = z.object({
+      title: z.string().trim().min(5).max(200),
+      body: z.string().trim().min(10).max(2000),
+      imageUrl: z.string().url().nullable().optional(),
+    });
+
+    const parsedBody = UpdateThreadSchema.parse(req.body);
+
+    const profile = await getUserFromClerk(auth.userId);
+    const authorUserId = await findThreadAuthor(threadId);
+
+    if (authorUserId !== profile.user.id) {
+      throw new UnauthorizedError("You can only edit your own threads");
+    }
+
+    const updated = await updateThreadById({
+      threadId,
+      title: parsedBody.title,
+      body: parsedBody.body,
+      imageUrl: parsedBody.imageUrl ?? null,
+    });
+
+    res.json({ data: updated });
+  } catch (err) {
+    next(err);
+  }
+});
+
+threadsRouter.delete("/threads/:threadId", async (req, res, next) => {
+  try {
+    const auth = getAuth(req);
+    if (!auth.userId) {
+      throw new UnauthorizedError("Unauthorized");
+    }
+
+    const threadId = Number(req.params.threadId);
+    if (!Number.isInteger(threadId) || threadId <= 0) {
+      throw new BadRequestError("Invalid thread id");
+    }
+
+    const profile = await getUserFromClerk(auth.userId);
+    const authorUserId = await findThreadAuthor(threadId);
+
+    if (authorUserId !== profile.user.id) {
+      throw new UnauthorizedError("You can only delete your own threads");
+    }
+
+    await deleteThreadById(threadId);
 
     res.status(204).send();
   } catch (err) {

@@ -1,5 +1,5 @@
 import { apiGet } from "@/lib/api-client";
-import type { Category, Comment, MeResponse, ThreadDetail } from "@/types/thread";
+import type { Comment, MeResponse, ThreadDetail } from "@/types/thread";
 import type { AxiosInstance } from "axios";
 
 export const ThreadService = {
@@ -9,15 +9,12 @@ export const ThreadService = {
   getReplies: (client: AxiosInstance, id: number): Promise<Comment[]> =>
     apiGet<Comment[]>(client, `/api/threads/threads/${id}/replies`),
 
-  getCategories: (client: AxiosInstance): Promise<Category[]> =>
-    apiGet<Category[]>(client, "/api/threads/categories"),
-
   getMe: (client: AxiosInstance): Promise<MeResponse> =>
     apiGet<MeResponse>(client, "/api/me"),
 
   createThread: (
     client: AxiosInstance,
-    payload: { title: string; body: string; categorySlug: string }
+    payload: { title: string; body: string; imageUrl?: string | null }
   ): Promise<ThreadDetail> =>
     client
       .post<{ data: ThreadDetail }>("/api/threads/threads", payload)
@@ -40,4 +37,26 @@ export const ThreadService = {
 
   unlikeThread: (client: AxiosInstance, threadId: number): Promise<void> =>
     client.delete(`/api/threads/threads/${threadId}/like`).then(() => undefined),
+
+  deleteThread: (client: AxiosInstance, threadId: number): Promise<void> =>
+    client.delete(`/api/threads/threads/${threadId}`).then(() => undefined),
+
+  updateThread: (
+    client: AxiosInstance,
+    threadId: number,
+    payload: { title: string; body: string; imageUrl?: string | null }
+  ): Promise<ThreadDetail> =>
+    client
+      .patch<{ data: ThreadDetail }>(`/api/threads/threads/${threadId}`, payload)
+      .then((res) => res.data.data),
+
+  uploadImage: (client: AxiosInstance, file: File): Promise<{ url: string }> => {
+    const formData = new FormData();
+    formData.append("file", file);
+    return client
+      .post<{ url: string }>("/api/upload/image-upload", formData, {
+        headers: { "Content-Type": "multipart/form-data" },
+      })
+      .then((res) => res.data);
+  },
 };

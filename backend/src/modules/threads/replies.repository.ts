@@ -150,8 +150,6 @@ export async function getThreadDetailsWithCounts(params: {
 
   const thread = await getThreadById(threadId);
 
-  console.log(thread, "threadcheck");
-
   const likeResult = await query(
     `
         SELECT COUNT(*)::int AS count

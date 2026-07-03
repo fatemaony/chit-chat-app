@@ -1,20 +1,9 @@
-export type Category = {
-  id: number;
-  slug: string;
-  name: string;
-  description: string | null;
-  sortOrder: number;
-};
-
 export type ThreadSummary = {
   id: number;
   title: string;
   excerpt: string;
+  imageUrl: string | null;
   createdAt: string;
-  category: {
-    slug: string;
-    name: string;
-  };
   author: {
     displayName: string | null;
     handle: string | null;
@@ -25,12 +14,9 @@ export type ThreadDetail = {
   id: number;
   title: string;
   body: string;
+  imageUrl: string | null;
   createdAt: string;
   updatedAt: string;
-  category: {
-    slug: string;
-    name: string;
-  };
   author: {
     displayName: string | null;
     handle: string | null;

@@ -1,18 +1,17 @@
 import { createBrowserApiClient } from "@/lib/api-client";
 import { ThreadService } from "@/services/thread.service";
-import type { Category, ThreadDetail } from "@/types/thread";
+import type { ThreadDetail } from "@/types/thread";
 import { useAuth } from "@clerk/nextjs";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useRouter } from "next/navigation";
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { useForm } from "react-hook-form";
 import { toast } from "sonner";
 import { z } from "zod";
 
 const NewThreadSchema = z.object({
-  title: z.string().trim().min(5, "Title is too short"),
-  body: z.string().trim().min(15, "Body is too short"),
-  categorySlug: z.string().trim().min(1, "Category is required"),
+  title: z.string().trim().min(5, "Title must be at least 5 characters"),
+  body: z.string().trim().min(15, "Description must be at least 15 characters"),
 });
 
 export type NewThreadFormValues = z.infer<typeof NewThreadSchema>;
@@ -22,51 +21,76 @@ export function useNewThread() {
   const router = useRouter();
   const apiClient = useMemo(() => createBrowserApiClient(getToken), [getToken]);
 
-  const [categories, setCategories] = useState<Category[]>([]);
-  const [isLoading, setIsLoading] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
+
+  // Image upload state
+  const [imageFile, setImageFile] = useState<File | null>(null);
+  const [imagePreview, setImagePreview] = useState<string | null>(null);
+  const [isUploadingImage, setIsUploadingImage] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const form = useForm<NewThreadFormValues>({
     resolver: zodResolver(NewThreadSchema),
-    defaultValues: { title: "", body: "", categorySlug: "" },
+    defaultValues: { title: "", body: "" },
   });
 
-  useEffect(() => {
-    let isMounted = true;
+  function handleImageSelect(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
 
-    async function load() {
-      setIsLoading(true);
-      try {
-        const extractCats = await ThreadService.getCategories(apiClient);
-        if (!isMounted) return;
-        setCategories(extractCats);
-        if (extractCats.length > 0) {
-          form.setValue("categorySlug", extractCats[0]?.slug);
-        }
-      } catch (e) {
-        console.log(e);
-      } finally {
-        if (isMounted) setIsLoading(false);
-      }
+    if (!file.type.startsWith("image/")) {
+      toast.error("Invalid file type", { description: "Please select an image file." });
+      return;
+    }
+    if (file.size > 10 * 1024 * 1024) {
+      toast.error("File too large", { description: "Image must be under 10 MB." });
+      return;
     }
 
-    load();
+    setImageFile(file);
+    setImagePreview(URL.createObjectURL(file));
+  }
 
-    return () => {
-      isMounted = false;
-    };
-  }, [apiClient, form]);
+  function handleImageRemove() {
+    setImageFile(null);
+    setImagePreview(null);
+    if (fileInputRef.current) fileInputRef.current.value = "";
+  }
 
   async function onThreadSubmit(values: NewThreadFormValues) {
     try {
       setIsSubmitting(true);
-      await ThreadService.createThread(apiClient, values);
-      toast.success("New thread created successfully!", {
-        description: "Your thread is now live!",
+
+      let uploadedImageUrl: string | null = null;
+
+      if (imageFile) {
+        setIsUploadingImage(true);
+        try {
+          const result = await ThreadService.uploadImage(apiClient, imageFile);
+          uploadedImageUrl = result.url;
+        } catch {
+          toast.error("Image upload failed", {
+            description: "Could not upload the image. Please try again.",
+          });
+          return;
+        } finally {
+          setIsUploadingImage(false);
+        }
+      }
+
+      await ThreadService.createThread(apiClient, {
+        title: values.title,
+        body: values.body,
+        imageUrl: uploadedImageUrl,
       });
+
+      toast.success("Thread created!", { description: "Your thread is now live!" });
       router.push("/");
     } catch (e) {
       console.log(e);
+      toast.error("Failed to create thread", {
+        description: "Something went wrong. Please try again.",
+      });
     } finally {
       setIsSubmitting(false);
     }
@@ -74,9 +98,12 @@ export function useNewThread() {
 
   return {
     form,
-    categories,
-    isLoading,
     isSubmitting,
+    isUploadingImage,
+    imagePreview,
+    fileInputRef,
+    handleImageSelect,
+    handleImageRemove,
     onSubmit: form.handleSubmit(onThreadSubmit),
   };
 }
