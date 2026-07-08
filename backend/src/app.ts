@@ -5,6 +5,7 @@ import { notFoundHandler } from "./middleware/notFoundHandler.js";
 import { errorHandler } from "./middleware/errorHandler.js";
 import { clerkMiddleware } from "./config/clerk.js";
 import { apiRouter } from "./routes/index.js";
+import { env } from "./config/env.js";
 
 export function createApp() {
   const app = express();
@@ -15,7 +16,7 @@ export function createApp() {
 
   app.use(
     cors({
-      origin: ["http://localhost:3000", "http://192.168.0.105:3000"],
+      origin: env.CORS_ORIGIN.split(",").map((o) => o.trim()),
       credentials: true,
     })
   );

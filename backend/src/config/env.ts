@@ -11,7 +11,11 @@ const EnvSchema = z.object({
 
   CLOUDINARY_CLOUD_NAME: z.string(),
   CLOUDINARY_API_KEY: z.string(),
-  CLOUDINARY_API_SECRET: z.string(), 
+  CLOUDINARY_API_SECRET: z.string(),
+
+  // Comma-separated list of allowed CORS origins.
+  // Example: "https://your-app.vercel.app,https://chit-chat-frontend-gilt.vercel.app"
+  CORS_ORIGIN: z.string().default("https://chit-chat-frontend-gilt.vercel.app,http://localhost:4000"),
 });
 
 

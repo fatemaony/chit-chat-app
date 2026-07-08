@@ -4,7 +4,7 @@ import { NotificationsClient } from "../../components/notifications/notification
 
 async function fetchNotifications(token: string): Promise<Notification[]> {
   const baseUrl =
-    process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:5000";
+    process.env.NEXT_PUBLIC_API_BASE_URL ?? "https://chit-chat-backend-0bjd.onrender.com";
 
   const res = await fetch(`${baseUrl}/api/notifications`, {
     headers: { Authorization: `Bearer ${token}` },

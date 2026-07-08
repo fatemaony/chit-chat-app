@@ -28,16 +28,7 @@ export async function upsertUserFromClerkProfile(params: {
 
   let user = await prisma.user.findUnique({ where: { clerkUserId } });
 
-  if (user) {
-    user = await prisma.user.update({
-      where: { clerkUserId },
-      data: {
-        displayName,
-        avatarUrl,
-        updatedAt: new Date()
-      }
-    });
-  } else {
+  if (!user) {
     const handle = await generateUniqueHandle(firstName);
     user = await prisma.user.create({
       data: {

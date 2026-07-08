@@ -19,21 +19,23 @@ import {
 } from "react";
 import { type Socket } from "socket.io-client";
 import { Card, CardContent, CardHeader, CardTitle } from "../ui/card";
-import { Send, Wifi, WifiOff } from "lucide-react";
+import { Send, Wifi, WifiOff, ArrowLeft } from "lucide-react";
 import { Textarea } from "../ui/textarea";
 import { Button } from "../ui/button";
 import { toast } from "sonner";
 import ImageUploadButton from "./image-upload-button";
+import { CircularLoader } from "../ui/circular-loader";
 
 type DirectChatPanelProps = {
   otherUserId: number;
   otherUser: ChatUser | null;
   socket: Socket | null;
   connected: boolean;
+  onBack?: () => void;
 };
 
 function DirectChatPanel(props: DirectChatPanelProps) {
-  const { otherUser, otherUserId, socket, connected } = props;
+  const { otherUser, otherUserId, socket, connected, onBack } = props;
   const { getToken } = useAuth();
 
   const apiClient = useMemo(() => createBrowserApiClient(getToken), [getToken]);
@@ -200,11 +202,24 @@ function DirectChatPanel(props: DirectChatPanelProps) {
   return (
     <Card className="flex h-full flex-col overflow-hidden border-border/70 bg-card">
       <CardHeader className="flex flex-row items-center justify-between space-y-0 border-b border-border pb-3">
-        <div>
-          <CardTitle className="text-base text-foreground">{title}</CardTitle>
-          <p className="mt-0.5 text-xs text-muted-foreground">
-            Direct message conversation
-          </p>
+        <div className="flex items-center gap-2">
+          {/* Back button: only visible on mobile */}
+          {onBack && (
+            <button
+              type="button"
+              onClick={onBack}
+              aria-label="Back to chat list"
+              className="md:hidden -ml-1 flex items-center justify-center rounded-full p-1.5 text-muted-foreground hover:bg-accent hover:text-foreground transition-colors"
+            >
+              <ArrowLeft className="w-5 h-5" />
+            </button>
+          )}
+          <div>
+            <CardTitle className="text-base text-foreground">{title}</CardTitle>
+            <p className="mt-0.5 text-xs text-muted-foreground">
+              Direct message conversation
+            </p>
+          </div>
         </div>
         <div className="flex items-center gap-2">
           <span
@@ -231,9 +246,7 @@ function DirectChatPanel(props: DirectChatPanelProps) {
 
       <CardContent className="flex-1 space-y-3 overflow-y-auto bg-background/60 p-4">
         {isLoading && (
-          <div className="flex items-center justify-center py-8">
-            <p className="text-xs text-muted-foreground">Loading messages...</p>
-          </div>
+          <CircularLoader label="Loading messages..." className="py-8" />
         )}
         {!isLoading && messages.length === 0 && (
           <div className="flex items-center justify-center py-12">

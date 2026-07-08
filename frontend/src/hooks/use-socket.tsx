@@ -37,10 +37,7 @@ export function SocketProvider({ children }: { children: ReactNode }) {
       return;
     }
 
-    let baseUrl = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:5000";
-    if (typeof window !== "undefined" && window.location.hostname !== "localhost") {
-      baseUrl = `http://${window.location.hostname}:5000`;
-    }
+    const baseUrl = process.env.NEXT_PUBLIC_API_BASE_URL ?? "https://chit-chat-backend-0bjd.onrender.com";
 
     const socketInstance: Socket = io(baseUrl, {
       auth: { userId },

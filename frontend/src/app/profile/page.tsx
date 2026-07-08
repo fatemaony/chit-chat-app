@@ -1,5 +1,7 @@
 "use client";
 
+import { useRef, useState } from "react";
+
 import { Avatar, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
@@ -7,11 +9,28 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
 import { SignOutButton } from "@clerk/nextjs";
-import { Save, User } from "lucide-react";
+import { Save, User, Camera, Loader2 } from "lucide-react";
 import { useProfileForm } from "@/hooks/useProfileForm";
 
 export default function ProfilePage() {
-  const { form, isLoading, isSaving, onSubmit, watchValues } = useProfileForm();
+  const { form, isLoading, isSaving, onSubmit, watchValues, uploadAvatar } = useProfileForm();
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [isUploading, setIsUploading] = useState(false);
+
+  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    try {
+      setIsUploading(true);
+      await uploadAvatar(file);
+    } finally {
+      setIsUploading(false);
+      if (fileInputRef.current) {
+        fileInputRef.current.value = "";
+      }
+    }
+  };
   const { register, formState: { errors } } = form;
 
   return (
@@ -32,14 +51,37 @@ export default function ProfilePage() {
               <Card className="border-border/70 bg-card">
                 <CardHeader className="pb-4">
                   <div className="flex items-start gap-6">
-                    <Avatar className="h-20 w-20">
-                      {watchValues.avatarUrl && (
-                        <AvatarImage
-                          src={watchValues.avatarUrl || "/placeholder.xyz"}
-                          alt={watchValues.displayName ?? "Avatar"}
-                        />
-                      )}
-                    </Avatar>
+                    <div 
+                      className="relative group rounded-full h-20 w-20 overflow-hidden cursor-pointer shrink-0" 
+                      onClick={() => !isUploading && fileInputRef.current?.click()}
+                    >
+                      <Avatar className="h-full w-full">
+                        {watchValues.avatarUrl && (
+                          <AvatarImage
+                            src={watchValues.avatarUrl || "/placeholder.xyz"}
+                            alt={watchValues.displayName ?? "Avatar"}
+                          />
+                        )}
+                      </Avatar>
+                      <div className={cn(
+                        "absolute inset-0 bg-black/40 flex items-center justify-center transition-opacity",
+                        isUploading ? "opacity-100" : "opacity-0 group-hover:opacity-100"
+                      )}>
+                        {isUploading ? (
+                          <Loader2 className="h-6 w-6 text-white animate-spin" />
+                        ) : (
+                          <Camera className="h-6 w-6 text-white" />
+                        )}
+                      </div>
+                      <input
+                        type="file"
+                        accept="image/*"
+                        className="hidden"
+                        ref={fileInputRef}
+                        onChange={handleFileChange}
+                        disabled={isUploading || isSaving || isLoading}
+                      />
+                    </div>
 
                     <div className="flex-1">
                       <div className="flex justify-between ">
@@ -48,7 +90,7 @@ export default function ProfilePage() {
                         </CardTitle>
                         <div className="">
                           <SignOutButton>
-                            <Button className="bg-red-500 hover:bg-red-600 text-white">Sign Out</Button>
+                            <Button className="bg-red-500 hover:bg-red-600 text-white dark:bg-red-600 dark:hover:bg-red-700">Sign Out</Button>
                           </SignOutButton>
                         </div>
                       </div>
@@ -130,28 +172,13 @@ export default function ProfilePage() {
                       </div>
                     </div>
 
-                    {/* Avatar URL */}
-                    <div className="space-y-2">
-                      <label htmlFor="avatarUrl" className="text-sm font-semibold text-foreground">
-                        Avatar URL
-                      </label>
-                      <Input
-                        id="avatarUrl"
-                        placeholder="https://example.com/avatar.jpg"
-                        {...register("avatarUrl")}
-                        disabled={isLoading || isSaving}
-                        className={cn("mt-2 bg-background/60 text-sm", errors.avatarUrl && "border-red-500")}
-                      />
-                      {errors.avatarUrl && (
-                        <p className="text-xs text-red-500">{errors.avatarUrl.message}</p>
-                      )}
-                    </div>
+                   
 
-                    <CardFooter className="p-0 pt-4">
+                    <CardFooter className="p-0 pt-4 pb-4">
                       <Button
                         type="submit"
                         disabled={isLoading || isSaving}
-                        className="min-w-[150px] bg-primary text-primary-foreground hover:bg-primary/90"
+                        className="min-w-[150px]"
                       >
                         <Save className="mr-2 h-4 w-4" />
                         {isSaving ? "Saving..." : "Save Changes"}

@@ -111,31 +111,46 @@ export default function ChatClient() {
       ? users.find((u) => u.id === activeUserId) ?? null
       : null;
 
+  // ── Mobile view state: "list" shows sidebar, "chat" shows the panel ────────
+  const [mobileView, setMobileView] = useState<"list" | "chat">("list");
+
   // ── Handle selecting a user: clear their badge ───────────────────────────
   function handleSelectUser(userId: number) {
     setActiveUserId(userId);
     clearUnreadDm(userId);
+    setMobileView("chat");
+  }
+
+  function handleBack() {
+    setMobileView("list");
   }
 
   return (
     <div className="max-auto max-w-6xl flex w-full flex-col gap-4 py-6 md:flex-row md:gap-6">
-      {/* ── Server-side: user list sidebar ── */}
-      <UsersSidebar
-        users={users}
-        onlineUserIds={onlineUserIds}
-        activeUserId={activeUserId}
-        loadingUsers={loadingUsers}
-        onSelectUser={handleSelectUser}
-      />
+      {/* ── User list sidebar: always visible on md+, only in "list" view on mobile ── */}
+      <div className={mobileView === "list" ? "block" : "hidden md:block"}>
+        <UsersSidebar
+          users={users}
+          onlineUserIds={onlineUserIds}
+          activeUserId={activeUserId}
+          loadingUsers={loadingUsers}
+          onSelectUser={handleSelectUser}
+        />
+      </div>
 
-      {/* ── Client-side: active conversation panel ── */}
-      <main className="min-h-[calc(100vh-8rem)] flex-1 md:min-h-auto">
+      {/* ── Active conversation panel: always visible on md+, only in "chat" view on mobile ── */}
+      <main
+        className={`min-h-[calc(100vh-8rem)] flex-1 md:min-h-auto ${
+          mobileView === "chat" ? "block" : "hidden md:block"
+        }`}
+      >
         {activeUserId && activeUser ? (
           <DirectChatPanel
             otherUserId={activeUserId}
             otherUser={activeUser}
             socket={socket}
             connected={connected}
+            onBack={handleBack}
           />
         ) : (
           <Card className="flex h-full items-center justify-center border-border/70 bg-card">

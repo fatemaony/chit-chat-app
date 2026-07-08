@@ -18,6 +18,7 @@ import {
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import Image from "next/image";
+import { CircularLoader } from "../ui/circular-loader";
 
 interface ThreadDetailProps {
   id: number;
@@ -39,7 +40,15 @@ export function ThreadDetail({ id }: ThreadDetailProps) {
     handleAddComment,
     handleDeleteComment,
     handleDeleteThread,
-    // edit
+    // edit comment
+    editingCommentId,
+    editingCommentBody,
+    setEditingCommentBody,
+    isSavingEditedComment,
+    startEditingComment,
+    cancelEditingComment,
+    handleSaveEditedComment,
+    // edit thread
     isEditModalOpen,
     editTitle,
     setEditTitle,
@@ -57,19 +66,23 @@ export function ThreadDetail({ id }: ThreadDetailProps) {
   } = useThreadDetail(id);
 
   const [menuOpen, setMenuOpen] = useState(false);
+  const [openCommentMenuId, setOpenCommentMenuId] = useState<number | null>(null);
   const menuRef = useRef<HTMLDivElement>(null);
+  const commentMenuRef = useRef<HTMLDivElement>(null);
 
+  // Close menus when clicking outside
   useEffect(() => {
-    function handleClickOutside(e: MouseEvent) {
-      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
+    function handleClickOutside(event: MouseEvent) {
+      if (menuRef.current && !menuRef.current.contains(event.target as Node)) {
         setMenuOpen(false);
       }
+      if (commentMenuRef.current && !commentMenuRef.current.contains(event.target as Node)) {
+        setOpenCommentMenuId(null);
+      }
     }
-    if (menuOpen) {
-      document.addEventListener("mousedown", handleClickOutside);
-    }
+    document.addEventListener("mousedown", handleClickOutside);
     return () => document.removeEventListener("mousedown", handleClickOutside);
-  }, [menuOpen]);
+  }, []);
 
   // Close modal on Escape
   useEffect(() => {
@@ -86,9 +99,7 @@ export function ThreadDetail({ id }: ThreadDetailProps) {
 
   if (loading) {
     return (
-      <div className="flex flex-col items-center justify-center px-4 py-10">
-        <p className="text-sm text-muted-foreground">Loading Thread...</p>
-      </div>
+      <CircularLoader label="Loading Thread..." className="px-4 py-10" />
     );
   }
 
@@ -105,19 +116,11 @@ export function ThreadDetail({ id }: ThreadDetailProps) {
   return (
     <>
       <div className="mx-auto flex w-full max-w-4xl flex-col gap-6 px-4 py-8">
-        <Button
-          variant={"ghost"}
-          onClick={() => router.push("/")}
-          className="w-fit rounded-full border border-border/70 bg-card/70 px-3 text-xs font-medium text-muted-foreground"
-        >
-          <ArrowLeft className="mr-2 w-4 h-4" />
-          Back to threads
-        </Button>
 
         <Card className="border-border/70 bg-card overflow-hidden">
           {/* Thread image */}
           {thread.imageUrl && (
-            <div className="relative h-64 w-full md:h-80">
+            <div className="relative h-60 w-full md:h-80">
               <Image
                 src={thread.imageUrl}
                 alt={thread.title}
@@ -130,8 +133,8 @@ export function ThreadDetail({ id }: ThreadDetailProps) {
           )}
 
           <CardHeader className="space-y-4">
-            <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
-              <div className="flex-1 space-y-3">
+            <div className="flex flex-col gap-3">
+              <div className="flex items-center justify-between">
                 <div className="flex flex-wrap items-center gap-2 text-xs">
                   {thread.author.handle && (
                     <span className="font-bold text-muted-foreground">
@@ -147,24 +150,19 @@ export function ThreadDetail({ id }: ThreadDetailProps) {
                   </span>
                 </div>
 
-                <h1 className="text-2xl font-semibold tracking-tight text-foreground md:text-3xl">
-                  {thread.title}
-                </h1>
-              </div>
-
-              {/* actions */}
-              {isThreadAuthor && (
-                <div className="relative shrink-0" ref={menuRef}>
-                  <Button
-                    size="icon"
-                    variant="ghost"
-                    onClick={() => setMenuOpen((prev) => !prev)}
-                    className="h-8 w-8 rounded-full border border-transparent hover:border-border/70 hover:bg-accent/60"
-                    aria-label="Thread options"
-                    id={`thread-menu-btn-${id}`}
-                  >
-                    <MoreVertical className="h-4 w-4 text-muted-foreground" />
-                  </Button>
+                {/* actions */}
+                {isThreadAuthor && (
+                  <div className="relative shrink-0" ref={menuRef}>
+                    <Button
+                      size="icon"
+                      variant="ghost"
+                      onClick={() => setMenuOpen((prev) => !prev)}
+                      className="h-8 w-8 rounded-full border border-transparent hover:border-border/70 hover:bg-accent/60"
+                      aria-label="Thread options"
+                      id={`thread-menu-btn-${id}`}
+                    >
+                      <MoreVertical className="h-4 w-4 text-muted-foreground" />
+                    </Button>
                     {menuOpen && (
                       <div className="absolute right-0 top-9 z-50 min-w-[150px] overflow-hidden rounded-lg border border-border bg-card shadow-lg shadow-black/20 animate-in fade-in slide-in-from-top-2 duration-150">
                         <button
@@ -197,6 +195,11 @@ export function ThreadDetail({ id }: ThreadDetailProps) {
                     )}
                   </div>
                 )}
+              </div>
+
+              <h1 className="text-2xl font-semibold tracking-tight text-foreground md:text-3xl">
+                {thread.title}
+              </h1>
             </div>
           </CardHeader>
 
@@ -251,21 +254,77 @@ export function ThreadDetail({ id }: ThreadDetailProps) {
                         </div>
 
                         {isCommentAuthor && (
-                          <Button
-                            onClick={() => handleDeleteComment(comment.id)}
-                            disabled={commentBeingDeletedId === comment.id}
-                            variant="ghost"
-                            size="sm"
-                            className="h-8 px-2 text-xs text-destructive hover:bg-destructive/10 hover:text-destructive"
-                          >
-                            <Trash2 className="w-5 h-5" />
-                          </Button>
+                          <div className="relative shrink-0" ref={openCommentMenuId === comment.id ? commentMenuRef : null}>
+                            <Button
+                              size="icon"
+                              variant="ghost"
+                              onClick={() => setOpenCommentMenuId((prev) => (prev === comment.id ? null : comment.id))}
+                              className="h-8 w-8 rounded-full border border-transparent hover:border-border/70 hover:bg-accent/60"
+                              aria-label="Comment options"
+                            >
+                              <MoreVertical className="h-4 w-4 text-muted-foreground" />
+                            </Button>
+                            {openCommentMenuId === comment.id && (
+                              <div className="absolute right-0 top-9 z-50 min-w-[150px] overflow-hidden rounded-lg border border-border bg-card shadow-lg shadow-black/20 animate-in fade-in slide-in-from-top-2 duration-150">
+                                <button
+                                  onClick={() => {
+                                    setOpenCommentMenuId(null);
+                                    startEditingComment(comment);
+                                  }}
+                                  className="flex w-full items-center gap-2 px-3 py-2.5 text-sm font-medium text-foreground transition-colors hover:bg-accent/60"
+                                >
+                                  <Pencil className="h-4 w-4 text-muted-foreground" />
+                                  Edit
+                                </button>
+                                <div className="mx-3 border-t border-border/60" />
+                                <button
+                                  onClick={() => {
+                                    setOpenCommentMenuId(null);
+                                    handleDeleteComment(comment.id);
+                                  }}
+                                  disabled={commentBeingDeletedId === comment.id}
+                                  className="flex w-full items-center gap-2 px-3 py-2.5 text-sm font-medium text-destructive transition-colors hover:bg-destructive/10 disabled:opacity-50"
+                                >
+                                  <Trash2 className="h-4 w-4" />
+                                  Delete
+                                </button>
+                              </div>
+                            )}
+                          </div>
                         )}
                       </div>
 
-                      <p className="whitespace-pre-wrap text-sm leading-relaxed text-muted-foreground">
-                        {comment.body}
-                      </p>
+                      {editingCommentId === comment.id ? (
+                        <div className="space-y-3 mt-2">
+                          <Textarea
+                            value={editingCommentBody}
+                            onChange={(e) => setEditingCommentBody(e.target.value)}
+                            rows={3}
+                            className="border-border bg-background/70 text-sm"
+                          />
+                          <div className="flex items-center gap-2">
+                            <Button
+                              onClick={handleSaveEditedComment}
+                              size="sm"
+                              disabled={isSavingEditedComment || !editingCommentBody.trim()}
+                            >
+                              {isSavingEditedComment ? "Saving..." : "Save"}
+                            </Button>
+                            <Button
+                              onClick={cancelEditingComment}
+                              size="sm"
+                              variant="ghost"
+                              disabled={isSavingEditedComment}
+                            >
+                              Cancel
+                            </Button>
+                          </div>
+                        </div>
+                      ) : (
+                        <p className="whitespace-pre-wrap text-sm leading-relaxed text-muted-foreground">
+                          {comment.body}
+                        </p>
+                      )}
                     </div>
                   );
                 })}
@@ -436,7 +495,7 @@ export function ThreadDetail({ id }: ThreadDetailProps) {
                 <Button
                   onClick={handleSaveEdit}
                   disabled={isBusy}
-                  className="bg-primary text-primary-foreground hover:bg-primary/90 min-w-[110px]"
+                  className="min-w-[110px]"
                 >
                   {isBusy ? (
                     <>

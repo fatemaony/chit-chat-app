@@ -19,6 +19,7 @@ import {
   likeThreadOnce,
   listRepliesForThread,
   removeThreadOnce,
+  updateReplyById,
 } from "../modules/threads/replies.repository.js";
 import {
   createLikeNotification,
@@ -178,6 +179,41 @@ threadsRouter.delete("/replies/:replyId", async (req, res, next) => {
     await deleteReplyById(replyId);
 
     res.status(204).send();
+  } catch (e) {
+    next(e);
+  }
+});
+
+threadsRouter.patch("/replies/:replyId", async (req, res, next) => {
+  try {
+    const auth = getAuth(req);
+    if (!auth.userId) {
+      throw new UnauthorizedError("Unauthorized");
+    }
+
+    const replyId = Number(req.params.replyId);
+    if (!Number.isInteger(replyId) || replyId <= 0) {
+      throw new BadRequestError("Invalid replyId");
+    }
+
+    const bodyRaw = typeof req.body?.body === "string" ? req.body.body : "";
+    if (bodyRaw.trim().length <= 2) {
+      throw new BadRequestError("Reply is too short!");
+    }
+
+    const profile = await getUserFromClerk(auth.userId);
+    const authorUserId = await findReplyAuthor(replyId);
+
+    if (authorUserId !== profile.user.id) {
+      throw new UnauthorizedError("You can only edit your own replies");
+    }
+
+    const reply = await updateReplyById({
+      replyId,
+      body: bodyRaw,
+    });
+
+    res.json({ data: reply });
   } catch (e) {
     next(e);
   }

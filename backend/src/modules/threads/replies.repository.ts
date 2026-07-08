@@ -70,6 +70,29 @@ export async function deleteReplyById(replyId: number) {
   });
 }
 
+export async function updateReplyById(params: {
+  replyId: number;
+  body: string;
+}) {
+  const { replyId, body } = params;
+
+  const reply = await prisma.reply.update({
+    where: { id: replyId },
+    data: { body },
+    include: { author: true }
+  });
+
+  return {
+    id: reply.id,
+    body: reply.body,
+    createdAt: reply.createdAt,
+    author: {
+      displayName: reply.author.displayName,
+      handle: reply.author.handle,
+    },
+  };
+}
+
 export async function likeThreadOnce(params: {
   threadId: number;
   userId: number;

@@ -32,6 +32,15 @@ export const ThreadService = {
   deleteReply: (client: AxiosInstance, replyId: number): Promise<void> =>
     client.delete(`/api/threads/replies/${replyId}`).then(() => undefined),
 
+  editReply: (
+    client: AxiosInstance,
+    replyId: number,
+    body: string
+  ): Promise<Comment> =>
+    client
+      .patch<{ data: Comment }>(`/api/threads/replies/${replyId}`, { body })
+      .then((res) => res.data.data),
+
   likeThread: (client: AxiosInstance, threadId: number): Promise<void> =>
     client.post(`/api/threads/threads/${threadId}/like`).then(() => undefined),
 

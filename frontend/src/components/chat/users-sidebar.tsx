@@ -6,6 +6,7 @@ import { useNotificationCount } from "@/hooks/use-notification-count";
 import { cn } from "@/lib/utils";
 import { ChatUser } from "@/types/chat";
 import { MessageSquare } from "lucide-react";
+import { CircularLoader } from "../ui/circular-loader";
 
 interface UsersSidebarProps {
   users: ChatUser[];
@@ -42,7 +43,7 @@ export default function UsersSidebar({
 
         <CardContent className="flex max-h-[calc(100vh-12rem)] flex-col gap-1 overflow-y-auto">
           {loadingUsers && (
-            <p className="text-muted-foreground text-xs px-1">Loading users…</p>
+            <CircularLoader label="Loading users…" className="py-8" />
           )}
 
           {!loadingUsers &&
@@ -67,11 +68,19 @@ export default function UsersSidebar({
                       : "text-muted-foreground hover:bg-card/90"
                   )}
                 >
-                  <Avatar className="h-8 w-8">
-                    {user.avatarUrl && (
-                      <AvatarImage src={user.avatarUrl} alt={label} />
+                  <div className="relative shrink-0">
+                    <Avatar className="h-8 w-8">
+                      {user.avatarUrl && (
+                        <AvatarImage src={user.avatarUrl} alt={label} />
+                      )}
+                    </Avatar>
+                    {isOnline && (
+                      <span
+                        aria-label="Online"
+                        className="absolute bottom-0 right-0 h-2.5 w-2.5 rounded-full bg-green-500 ring-2 ring-card animate-in zoom-in-75 duration-200"
+                      />
                     )}
-                  </Avatar>
+                  </div>
                   <div className="min-w-0 flex flex-1 flex-col">
                     <span className="truncate text-[12px] font-medium text-foreground">
                       {label}

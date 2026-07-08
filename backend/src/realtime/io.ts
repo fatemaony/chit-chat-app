@@ -50,7 +50,7 @@ export function initIo(httpServer: HttpServer) {
 
   io = new Server(httpServer, {
     cors: {
-      origin: ["http://localhost:3000", "http://192.168.0.105:3000"],
+      origin: ["https://chit-chat-frontend-gilt.vercel.app", "http://192.168.0.105:4000"],
       credentials: true,
     },
   });

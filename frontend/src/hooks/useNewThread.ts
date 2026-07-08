@@ -8,6 +8,7 @@ import { useMemo, useRef, useState } from "react";
 import { useForm } from "react-hook-form";
 import { toast } from "sonner";
 import { z } from "zod";
+import { useThreadsCache } from "@/hooks/use-threads-cache";
 
 const NewThreadSchema = z.object({
   title: z.string().trim().min(5, "Title must be at least 5 characters"),
@@ -20,6 +21,7 @@ export function useNewThread() {
   const { getToken } = useAuth();
   const router = useRouter();
   const apiClient = useMemo(() => createBrowserApiClient(getToken), [getToken]);
+  const { invalidateThreads } = useThreadsCache();
 
   const [isSubmitting, setIsSubmitting] = useState(false);
 
@@ -85,6 +87,8 @@ export function useNewThread() {
       });
 
       toast.success("Thread created!", { description: "Your thread is now live!" });
+      // Invalidate the thread list cache so the home page re-fetches on next visit
+      invalidateThreads();
       router.push("/");
     } catch (e) {
       console.log(e);

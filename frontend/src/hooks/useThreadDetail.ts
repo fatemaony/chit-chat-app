@@ -5,12 +5,14 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { ThreadService } from "@/services/thread.service";
 import { useRouter, useSearchParams } from "next/navigation";
+import { useThreadsCache } from "@/hooks/use-threads-cache";
 
 export function useThreadDetail(id: number) {
   const { getToken, userId } = useAuth();
   const apiClient = useMemo(() => createBrowserApiClient(getToken), [getToken]);
   const router = useRouter();
   const searchParams = useSearchParams();
+  const { invalidateThreads } = useThreadsCache();
 
   const [thread, setThread] = useState<ThreadDetail | null>(null);
   const [loading, setLoading] = useState(true);
@@ -20,6 +22,10 @@ export function useThreadDetail(id: number) {
   const [newComment, setNewComment] = useState("");
   const [isPostingComment, setIsPostingComment] = useState(false);
   const [commentBeingDeletedId, setCommentBeingDeletedId] = useState<number | null>(null);
+
+  const [editingCommentId, setEditingCommentId] = useState<number | null>(null);
+  const [editingCommentBody, setEditingCommentBody] = useState("");
+  const [isSavingEditedComment, setIsSavingEditedComment] = useState(false);
 
   const [isDeletingThread, setIsDeletingThread] = useState(false);
 
@@ -175,6 +181,8 @@ export function useThreadDetail(id: number) {
 
       setThread(updated);
       closeEditModal();
+      // Invalidate cache so home page shows updated content on next visit
+      invalidateThreads();
       toast.success("Thread updated!", { description: "Your changes have been saved." });
     } catch (e) {
       console.log(e);
@@ -240,6 +248,37 @@ export function useThreadDetail(id: number) {
     }
   }
 
+  function startEditingComment(comment: Comment) {
+    setEditingCommentId(comment.id);
+    setEditingCommentBody(comment.body);
+  }
+
+  function cancelEditingComment() {
+    setEditingCommentId(null);
+    setEditingCommentBody("");
+  }
+
+  async function handleSaveEditedComment() {
+    const trimmed = editingCommentBody.trim();
+    if (trimmed.length < 2 || !editingCommentId) return;
+
+    try {
+      setIsSavingEditedComment(true);
+      const updated = await ThreadService.editReply(apiClient, editingCommentId, trimmed);
+      setComments((prev) =>
+        prev.map((c) => (c.id === editingCommentId ? updated : c))
+      );
+      setEditingCommentId(null);
+      setEditingCommentBody("");
+      toast.success("Comment updated");
+    } catch (e) {
+      console.log(e);
+      toast.error("Failed to update comment");
+    } finally {
+      setIsSavingEditedComment(false);
+    }
+  }
+
   async function handleDeleteThread() {
     if (!thread) return;
 
@@ -254,6 +293,8 @@ export function useThreadDetail(id: number) {
       toast.success("Thread deleted", {
         description: "Your thread has been deleted.",
       });
+      // Invalidate cache so home page does not show the deleted thread on next visit
+      invalidateThreads();
       router.push("/");
     } catch (e) {
       console.log(e);
@@ -279,7 +320,15 @@ export function useThreadDetail(id: number) {
     handleAddComment,
     handleDeleteComment,
     handleDeleteThread,
-    // edit
+    // edit comment
+    editingCommentId,
+    editingCommentBody,
+    setEditingCommentBody,
+    isSavingEditedComment,
+    startEditingComment,
+    cancelEditingComment,
+    handleSaveEditedComment,
+    // edit thread
     isEditModalOpen,
     editTitle,
     setEditTitle,

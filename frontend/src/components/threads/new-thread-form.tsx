@@ -40,9 +40,6 @@ export function NewThreadForm() {
       </div>
 
       <Card className="border-border/70 bg-card">
-        <CardHeader>
-          <CardTitle className="text-lg text-foreground">Thread Details</CardTitle>
-        </CardHeader>
         <CardContent>
           <form onSubmit={onSubmit} className="space-y-6">
             {/* Title */}
@@ -151,7 +148,7 @@ export function NewThreadForm() {
               <Button
                 type="submit"
                 disabled={isBusy}
-                className="bg-primary text-primary-foreground hover:bg-primary/90 min-w-[140px]"
+                className="min-w-[140px]"
               >
                 {isBusy ? (
                   <>

@@ -6,11 +6,13 @@ import { useAuth } from "@clerk/nextjs";
 import { createBrowserApiClient } from "@/lib/api-client";
 import { ProfileSchema, type ProfileFormValues } from "@/lib/validations/profile";
 import { ProfileService } from "@/services/profile.service";
+import { useNotificationCount } from "./use-notification-count";
 
 export function useProfileForm() {
   const { getToken } = useAuth();
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
+  const { setCurrentUserAvatarUrl } = useNotificationCount();
 
   const apiClient = useMemo(() => createBrowserApiClient(getToken), [getToken]);
 
@@ -66,6 +68,10 @@ export function useProfileForm() {
         avatarUrl: data.avatarUrl ?? "",
       });
 
+      if (data.avatarUrl) {
+        setCurrentUserAvatarUrl(data.avatarUrl);
+      }
+
       toast.success("Profile updated", {
         description: "Your changes have been saved successfully!",
       });
@@ -86,6 +92,26 @@ export function useProfileForm() {
       displayName: form.watch("displayName"),
       handle: form.watch("handle"),
       avatarUrl: form.watch("avatarUrl"),
+    },
+    uploadAvatar: async (file: File) => {
+      try {
+        const formData = new FormData();
+        formData.append("file", file);
+        const res = await apiClient.post<{ url: string }>("/api/upload/image-upload", formData, {
+          headers: { "Content-Type": "multipart/form-data" },
+        });
+        const url = res.data.url;
+        
+        const data = await ProfileService.updateProfile(apiClient, { avatarUrl: url });
+        form.setValue("avatarUrl", data.avatarUrl ?? url, { shouldDirty: true });
+        setCurrentUserAvatarUrl(data.avatarUrl ?? url);
+        
+        toast.success("Profile picture updated");
+      } catch (error) {
+        console.error("Failed to upload avatar:", error);
+        toast.error("Failed to upload profile picture");
+        throw error;
+      }
     },
   };
 }

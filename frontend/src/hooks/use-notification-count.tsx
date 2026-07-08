@@ -16,6 +16,10 @@ type NotificationCountContextValue = {
   /** The current user's numeric DB id — set by Navbar after /api/me fetch */
   currentDbUserId: number | null;
   setCurrentDbUserId: Dispatch<SetStateAction<number | null>>;
+  
+  /** The current user's DB avatar URL */
+  currentUserAvatarUrl: string | null;
+  setCurrentUserAvatarUrl: Dispatch<SetStateAction<string | null>>;
 
   // ── Bell / app notifications ──────────────────────────────────────────────
   unreadCount: number;
@@ -46,6 +50,7 @@ export function NotificationCountProvider({
 }) {
   // ── Current user DB id (populated by Navbar) ──────────────────────────────
   const [currentDbUserId, setCurrentDbUserId] = useState<number | null>(null);
+  const [currentUserAvatarUrl, setCurrentUserAvatarUrl] = useState<string | null>(null);
 
   // ── App notifications ─────────────────────────────────────────────────────
   const [unreadCount, setUnreadCount] = useState(0);
@@ -95,6 +100,8 @@ export function NotificationCountProvider({
     () => ({
       currentDbUserId,
       setCurrentDbUserId,
+      currentUserAvatarUrl,
+      setCurrentUserAvatarUrl,
       unreadCount,
       setUnreadCount,
       incrementUnread,
@@ -107,6 +114,7 @@ export function NotificationCountProvider({
     }),
     [
       currentDbUserId,
+      currentUserAvatarUrl,
       unreadCount,
       incrementUnread,
       decrementUnread,
